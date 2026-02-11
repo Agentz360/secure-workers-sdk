@@ -142,6 +142,42 @@ describe("autoconfig (deploy)", () => {
 		expect(runSpy).not.toHaveBeenCalled();
 	});
 
+	it("should warn and prompt when Pages project is detected", async () => {
+		vi.spyOn(details, "getDetailsForAutoConfig").mockImplementationOnce(() =>
+			Promise.resolve({
+				configured: false,
+				projectPath: process.cwd(),
+				workerName: "my-worker",
+				framework: {
+					id: "cloudflare-pages",
+					name: "Cloudflare Pages",
+					autoConfigSupported: false,
+					configure: async () => ({ wranglerConfig: {} }),
+					isConfigured: () => false,
+				},
+				outputDir: "public",
+			})
+		);
+		const runSpy = vi.spyOn(run, "runAutoConfig");
+
+		// User declines to proceed
+		mockConfirm({
+			text: "Are you sure that you want to proceed?",
+			result: false,
+		});
+
+		// Should not throw - just return early
+		await runWrangler("deploy --x-autoconfig");
+
+		// Should show warning about Pages project
+		expect(std.warn).toContain(
+			"It seems that you have run `wrangler deploy` on a Pages project"
+		);
+
+		// Should NOT run autoconfig since it's a Pages project
+		expect(runSpy).not.toHaveBeenCalled();
+	});
+
 	describe("runAutoConfig()", () => {
 		let installSpy: MockInstance;
 		beforeEach(() => {
@@ -210,19 +246,19 @@ describe("autoconfig (deploy)", () => {
 				 - wrangler (devDependency)
 
 				📝 Update package.json scripts:
-				 - \\"deploy\\": \\"echo 'built' > build.txt && wrangler deploy\\"
-				 - \\"preview\\": \\"echo 'built' > build.txt && wrangler dev\\"
+				 - "deploy": "echo 'built' > build.txt && wrangler deploy"
+				 - "preview": "echo 'built' > build.txt && wrangler dev"
 
 				📄 Create wrangler.jsonc:
 				  {
-				    \\"$schema\\": \\"node_modules/wrangler/config-schema.json\\",
-				    \\"name\\": \\"my-worker\\",
-				    \\"compatibility_date\\": \\"2000-01-01\\",
-				    \\"observability\\": {
-				      \\"enabled\\": true
+				    "$schema": "node_modules/wrangler/config-schema.json",
+				    "name": "my-worker",
+				    "compatibility_date": "2000-01-01",
+				    "observability": {
+				      "enabled": true
 				    },
-				    \\"assets\\": {
-				      \\"directory\\": \\"dist\\"
+				    "assets": {
+				      "directory": "dist"
 				    }
 				  }
 
@@ -233,14 +269,14 @@ describe("autoconfig (deploy)", () => {
 
 			expect(readFileSync("wrangler.jsonc")).toMatchInlineSnapshot(`
 				"{
-				  \\"$schema\\": \\"node_modules/wrangler/config-schema.json\\",
-				  \\"name\\": \\"my-worker\\",
-				  \\"compatibility_date\\": \\"2000-01-01\\",
-				  \\"observability\\": {
-				    \\"enabled\\": true
+				  "$schema": "node_modules/wrangler/config-schema.json",
+				  "name": "my-worker",
+				  "compatibility_date": "2000-01-01",
+				  "observability": {
+				    "enabled": true
 				  },
-				  \\"assets\\": {
-				    \\"directory\\": \\"dist\\"
+				  "assets": {
+				    "directory": "dist"
 				  }
 				}"
 			`);
@@ -315,14 +351,14 @@ describe("autoconfig (deploy)", () => {
 
 				📄 Create wrangler.jsonc:
 				  {
-				    \\"$schema\\": \\"node_modules/wrangler/config-schema.json\\",
-				    \\"name\\": \\"edited-worker-name\\",
-				    \\"compatibility_date\\": \\"2000-01-01\\",
-				    \\"observability\\": {
-				      \\"enabled\\": true
+				    "$schema": "node_modules/wrangler/config-schema.json",
+				    "name": "edited-worker-name",
+				    "compatibility_date": "2000-01-01",
+				    "observability": {
+				      "enabled": true
 				    },
-				    \\"assets\\": {
-				      \\"directory\\": \\"dist\\"
+				    "assets": {
+				      "directory": "dist"
 				    }
 				  }
 				"
@@ -330,14 +366,14 @@ describe("autoconfig (deploy)", () => {
 
 			expect(readFileSync("wrangler.jsonc")).toMatchInlineSnapshot(`
 				"{
-				  \\"$schema\\": \\"node_modules/wrangler/config-schema.json\\",
-				  \\"name\\": \\"edited-worker-name\\",
-				  \\"compatibility_date\\": \\"2000-01-01\\",
-				  \\"observability\\": {
-				    \\"enabled\\": true
+				  "$schema": "node_modules/wrangler/config-schema.json",
+				  "name": "edited-worker-name",
+				  "compatibility_date": "2000-01-01",
+				  "observability": {
+				    "enabled": true
 				  },
-				  \\"assets\\": {
-				    \\"directory\\": \\"dist\\"
+				  "assets": {
+				    "directory": "dist"
 				  }
 				}"
 			`);
@@ -390,6 +426,56 @@ describe("autoconfig (deploy)", () => {
 				})
 			).rejects.toThrowErrorMatchingInlineSnapshot(
 				`[AssertionError: The Output Directory is unexpectedly missing]`
+			);
+		});
+
+		it("errors with Pages-specific message when framework is cf-pages", async () => {
+			mockConfirm({
+				text: "Do you want to modify these settings?",
+				result: false,
+			});
+
+			await expect(
+				run.runAutoConfig({
+					projectPath: process.cwd(),
+					configured: false,
+					framework: {
+						id: "cloudflare-pages",
+						name: "Cloudflare Pages",
+						autoConfigSupported: false,
+						configure: async () => ({ wranglerConfig: {} }),
+						isConfigured: () => false,
+					},
+					workerName: "my-worker",
+					outputDir: "dist",
+				})
+			).rejects.toThrowErrorMatchingInlineSnapshot(
+				`[Error: The target project seems to be using Cloudflare Pages. Automatically migrating from a Pages project to a Workers one is not yet supported.]`
+			);
+		});
+
+		it("errors with generic message when unsupported framework is not cf-pages", async () => {
+			mockConfirm({
+				text: "Do you want to modify these settings?",
+				result: false,
+			});
+
+			await expect(
+				run.runAutoConfig({
+					projectPath: process.cwd(),
+					configured: false,
+					framework: {
+						id: "some-unsupported",
+						name: "Some Unsupported Framework",
+						autoConfigSupported: false,
+						configure: async () => ({ wranglerConfig: {} }),
+						isConfigured: () => false,
+					},
+					workerName: "my-worker",
+					outputDir: "dist",
+				})
+			).rejects.toThrowErrorMatchingInlineSnapshot(
+				`[Error: The detected framework ("Some Unsupported Framework") cannot be automatically configured.]`
 			);
 		});
 	});
